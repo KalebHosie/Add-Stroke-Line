@@ -4,8 +4,9 @@ using System.CommandLine;
 
 class Program
 {
-    private const string FixedKey = "MojaLagloSolveKore";
-    private const string DebugFolderName = "Kaleb_Jessi_Be_Happy";
+    // Removed FixedKey and associated metadata checks.
+    // Kept SpotColor for color usage only.
+    private const string DebugFolderName = "Stroke Debug";
     private const string SpotColor = "tagkisscut";
 
     public static int Main(string[] args)
@@ -20,18 +21,17 @@ class Program
             description: "Rotation angle: 0, 90, 180, or 270",
             getDefaultValue: () => 0);
 
-
         var debugOption = new Option<bool>(
             new[] { "--debug", "-d" },
             description: "Debug true or false",
             getDefaultValue: () => false);
 
         RootCommand rootCommand = new()
-            {
-                fileOption,
-                rotationOption,
-                debugOption
-            };
+        {
+            fileOption,
+            rotationOption,
+            debugOption
+        };
 
         rootCommand.Description = "Add a stroke to a PDF at a specified rotation";
 
@@ -58,20 +58,16 @@ class Program
         }
         Console.WriteLine($"Adding stroke to '{file}' with rotation {rotation}... debug: {debug}");
         AddStrokeToPdf(file, rotation, debug);
-        
-        
     }
 
     static string AddDirectoryToFilePath(string filePath, string newDirectory)
     {
         string originalDirectory = Path.GetDirectoryName(filePath);
-
         string updatedDirectory = Path.Combine(originalDirectory, newDirectory);
 
         Directory.CreateDirectory(updatedDirectory);
 
         string updatedPath = Path.Combine(updatedDirectory, Path.GetFileName(filePath));
-
         return updatedPath;
     }
 
@@ -79,43 +75,29 @@ class Program
     static void AddStrokeToPdf(string inputPdf, int rotation, bool debug)
     {
         // Create a temporary file for writing
-        string outputFile;
-
-        if (!debug)
-        {
-            outputFile = Path.Combine(Path.GetDirectoryName(inputPdf) ?? string.Empty, Guid.NewGuid() + ".pdf");
-        }
-        else
-        {
-            outputFile = AddDirectoryToFilePath(inputPdf, DebugFolderName);
-        }
+        string outputFile = debug
+            ? AddDirectoryToFilePath(inputPdf, DebugFolderName)
+            : Path.Combine(Path.GetDirectoryName(inputPdf) ?? string.Empty, Guid.NewGuid() + ".pdf");
 
         try
         {
             using (var reader = new PdfReader(inputPdf))
             {
-                var info = reader.Info;
-                if (info.ContainsKey(FixedKey) && info.GetValueOrDefault(FixedKey) == SpotColor)
-                {
-                    Console.WriteLine($"Stroke line already added!");
-
-                    return;
-                }
-
                 using (var outputStream = new FileStream(outputFile, FileMode.Create, FileAccess.Write))
                 using (var stamper = new PdfStamper(reader, outputStream))
                 {
-                    
-
                     BaseColor baseColor = new CMYKColor(0f, 1f, 0f, 0f);
                     PdfSpotColor spotColor = new PdfSpotColor(SpotColor, baseColor);
-                    PdfGState gState = new PdfGState { FillOpacity = 1.0f, StrokeOpacity = 1.0f };
+                    PdfGState gState = new PdfGState
+                    {
+                        FillOpacity = 1.0f,
+                        StrokeOpacity = 1.0f
+                    };
 
                     for (int i = 1; i <= reader.NumberOfPages; i++)
                     {
                         PdfContentByte cb = stamper.GetOverContent(i);
                         cb.SetGState(gState);
-
                         cb.SetColorStroke(new SpotColor(spotColor, 1.0f));
 
                         var pageSize = reader.GetPageSize(i);
@@ -152,13 +134,8 @@ class Program
                         }
 
                         DrawStroke(cb, x1, y1, x2, y2);
-
-                        info[FixedKey] = SpotColor;
-                        stamper.MoreInfo = info;
                     }
                 }
-                
-                Console.WriteLine($"StrokeLine Added successfully!");
             }
 
             if (!debug)
@@ -169,13 +146,15 @@ class Program
                 File.Delete(inputPdf);
                 File.Move(outputFile, inputPdf);
             }
+
+            Console.WriteLine($"StrokeLine added successfully!");
         }
         catch (Exception ex)
         {
             Console.WriteLine($"An error occurred: {ex.Message}");
             if (File.Exists(outputFile) && !debug)
             {
-                File.Delete(outputFile); 
+                File.Delete(outputFile);
             }
             throw;
         }
@@ -183,7 +162,7 @@ class Program
 
     static void DrawStroke(PdfContentByte cb, float x1, float y1, float x2, float y2)
     {
-        cb.SetLineWidth(.5);
+        cb.SetLineWidth(.5f);
         cb.MoveTo(x1, y1);
         cb.LineTo(x2, y2);
         cb.Stroke();
