@@ -4,6 +4,10 @@ using System.CommandLine;
 
 class Program
 {
+    private const string FixedKey = "MojaLagloSolveKore";
+    private const string DebugFolderName = "Kaleb_Jessi_Be_Happy";
+    private const string SpotColor = "tagkisscut";
+
     public static int Main(string[] args)
     {
         var fileOption = new Option<string>(
@@ -16,23 +20,30 @@ class Program
             description: "Rotation angle: 0, 90, 180, or 270",
             getDefaultValue: () => 0);
 
+
+        var debugOption = new Option<bool>(
+            new[] { "--debug", "-d" },
+            description: "Debug true or false",
+            getDefaultValue: () => false);
+
         RootCommand rootCommand = new()
             {
                 fileOption,
-                rotationOption
+                rotationOption,
+                debugOption
             };
 
         rootCommand.Description = "Add a stroke to a PDF at a specified rotation";
 
-        rootCommand.SetHandler((string file, int rotation) =>
+        rootCommand.SetHandler((string file, int rotation, bool debug) =>
         {
-            Handler(file, rotation);
-        }, fileOption, rotationOption);
+            Handler(file, rotation, debug);
+        }, fileOption, rotationOption, debugOption);
 
         return rootCommand.Invoke(args);
     }
 
-    static void Handler(string file, int rotation)
+    static void Handler(string file, int rotation, bool debug)
     {
         if (string.IsNullOrEmpty(file) || !File.Exists(file))
         {
@@ -45,83 +56,126 @@ class Program
             Console.WriteLine("Error: Invalid rotation value. Accepted values are 0, 90, 180, or 270.");
             return;
         }
-        AddStrokeToPdf(file, rotation);
-        Console.WriteLine($"Adding stroke to '{file}' with rotation {rotation}...");
-        Console.WriteLine($"PDF modified successfully: {file}");
+        Console.WriteLine($"Adding stroke to '{file}' with rotation {rotation}... debug: {debug}");
+        AddStrokeToPdf(file, rotation, debug);
+        
+        
     }
 
+    static string AddDirectoryToFilePath(string filePath, string newDirectory)
+    {
+        string originalDirectory = Path.GetDirectoryName(filePath);
 
-    //   dotnet AddStrokeLine.dll --file "D:\baka.pdf" --rotation 90
-    static void AddStrokeToPdf(string inputPdf, int rotation)
+        string updatedDirectory = Path.Combine(originalDirectory, newDirectory);
+
+        Directory.CreateDirectory(updatedDirectory);
+
+        string updatedPath = Path.Combine(updatedDirectory, Path.GetFileName(filePath));
+
+        return updatedPath;
+    }
+
+    //   dotnet AddStrokeLine.dll --file "D:\baka.pdf" --rotation 90 --debug true
+    static void AddStrokeToPdf(string inputPdf, int rotation, bool debug)
     {
         // Create a temporary file for writing
-        string tempPdf = Path.Combine(Path.GetDirectoryName(inputPdf) ?? string.Empty, Guid.NewGuid() + ".pdf");
+        string outputFile;
+
+        if (!debug)
+        {
+            outputFile = Path.Combine(Path.GetDirectoryName(inputPdf) ?? string.Empty, Guid.NewGuid() + ".pdf");
+        }
+        else
+        {
+            outputFile = AddDirectoryToFilePath(inputPdf, DebugFolderName);
+        }
 
         try
         {
             using (var reader = new PdfReader(inputPdf))
-            using (var outputStream = new FileStream(tempPdf, FileMode.Create, FileAccess.Write))
-            using (var stamper = new PdfStamper(reader, outputStream))
             {
-                BaseColor baseColor = new CMYKColor(0f, 1f, 0f, 0f); 
-                PdfSpotColor spotColor = new PdfSpotColor("cut", baseColor); 
-                PdfGState gState = new PdfGState { FillOpacity = 1.0f, StrokeOpacity = 1.0f };
-
-                for (int i = 1; i <= reader.NumberOfPages; i++)
+                var info = reader.Info;
+                if (info.ContainsKey(FixedKey) && info.GetValueOrDefault(FixedKey) == SpotColor)
                 {
-                    PdfContentByte cb = stamper.GetOverContent(i);
-                    cb.SetGState(gState);
+                    Console.WriteLine($"Stroke line already added!");
 
-                    cb.SetColorStroke(new SpotColor(spotColor, 1.0f));
-
-                    var pageSize = reader.GetPageSize(i);
-                    float x1, y1, x2, y2;
-
-
-                    switch (rotation)
-                    {
-                        case 0:
-                            x1 = pageSize.Left;
-                            y1 = pageSize.Bottom;
-                            x2 = pageSize.Right;
-                            y2 = pageSize.Bottom;
-                            break;
-                        case 90:
-                            x1 = pageSize.Right;
-                            y1 = pageSize.Bottom;
-                            x2 = pageSize.Right;
-                            y2 = pageSize.Top;
-                            break;
-                        case 180:
-                            x1 = pageSize.Left;
-                            y1 = pageSize.Top;
-                            x2 = pageSize.Right;
-                            y2 = pageSize.Top;
-                            break;
-                        case 270:
-                            x1 = pageSize.Left;
-                            y1 = pageSize.Bottom;
-                            x2 = pageSize.Left;
-                            y2 = pageSize.Top;
-                            break;
-                        default:
-                            throw new InvalidOperationException("Invalid rotation value.");
-                    }
-
-                    DrawStroke(cb, x1, y1, x2, y2);
-
+                    return;
                 }
+
+                using (var outputStream = new FileStream(outputFile, FileMode.Create, FileAccess.Write))
+                using (var stamper = new PdfStamper(reader, outputStream))
+                {
+                    
+
+                    BaseColor baseColor = new CMYKColor(0f, 1f, 0f, 0f);
+                    PdfSpotColor spotColor = new PdfSpotColor(SpotColor, baseColor);
+                    PdfGState gState = new PdfGState { FillOpacity = 1.0f, StrokeOpacity = 1.0f };
+
+                    for (int i = 1; i <= reader.NumberOfPages; i++)
+                    {
+                        PdfContentByte cb = stamper.GetOverContent(i);
+                        cb.SetGState(gState);
+
+                        cb.SetColorStroke(new SpotColor(spotColor, 1.0f));
+
+                        var pageSize = reader.GetPageSize(i);
+                        float x1, y1, x2, y2;
+
+                        switch (rotation)
+                        {
+                            case 0:
+                                x1 = pageSize.Left;
+                                y1 = pageSize.Bottom;
+                                x2 = pageSize.Right;
+                                y2 = pageSize.Bottom;
+                                break;
+                            case 90:
+                                x1 = pageSize.Right;
+                                y1 = pageSize.Bottom;
+                                x2 = pageSize.Right;
+                                y2 = pageSize.Top;
+                                break;
+                            case 180:
+                                x1 = pageSize.Left;
+                                y1 = pageSize.Top;
+                                x2 = pageSize.Right;
+                                y2 = pageSize.Top;
+                                break;
+                            case 270:
+                                x1 = pageSize.Left;
+                                y1 = pageSize.Bottom;
+                                x2 = pageSize.Left;
+                                y2 = pageSize.Top;
+                                break;
+                            default:
+                                throw new InvalidOperationException("Invalid rotation value.");
+                        }
+
+                        DrawStroke(cb, x1, y1, x2, y2);
+
+                        info[FixedKey] = SpotColor;
+                        stamper.MoreInfo = info;
+                    }
+                }
+                
+                Console.WriteLine($"StrokeLine Added successfully!");
             }
 
-            File.Delete(inputPdf); 
-            File.Move(tempPdf, inputPdf); 
+            if (!debug)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+
+                File.Delete(inputPdf);
+                File.Move(outputFile, inputPdf);
+            }
         }
         catch (Exception ex)
         {
             Console.WriteLine($"An error occurred: {ex.Message}");
-            if (File.Exists(tempPdf))
+            if (File.Exists(outputFile) && !debug)
             {
-                File.Delete(tempPdf); 
+                File.Delete(outputFile); 
             }
             throw;
         }
