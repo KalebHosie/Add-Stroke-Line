@@ -1,0 +1,1 @@
+# Add Stroke Source Code 1.0
