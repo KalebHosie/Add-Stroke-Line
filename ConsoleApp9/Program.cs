@@ -1,11 +1,15 @@
-﻿using iTextSharp.text;
-using iTextSharp.text.pdf;
+﻿using System;
 using System.CommandLine;
+using System.IO;
+using iText.Kernel.Pdf;
+using iText.Kernel.Colors;
+using iText.Kernel.Pdf.Canvas;
+using iText.Kernel.Pdf.Extgstate;
+using iText.Kernel.Pdf.Colorspace;
+using iText.Kernel.Pdf.Function;
 
 class Program
 {
-    // Removed FixedKey and associated metadata checks.
-    // Kept SpotColor for color usage only.
     private const string DebugFolderName = "Stroke Debug";
     private const string SpotColor = "tagkisscut";
 
@@ -23,7 +27,7 @@ class Program
 
         var debugOption = new Option<bool>(
             new[] { "--debug", "-d" },
-            description: "Debug true or false",
+            description: "Enable debug mode (saves output in 'Stroke Debug' folder)",
             getDefaultValue: () => false);
 
         RootCommand rootCommand = new()
@@ -33,7 +37,7 @@ class Program
             debugOption
         };
 
-        rootCommand.Description = "Add a stroke to a PDF at a specified rotation";
+        rootCommand.Description = "Add a stroke to a PDF at a specified rotation.";
 
         rootCommand.SetHandler((string file, int rotation, bool debug) =>
         {
@@ -56,98 +60,93 @@ class Program
             Console.WriteLine("Error: Invalid rotation value. Accepted values are 0, 90, 180, or 270.");
             return;
         }
-        Console.WriteLine($"Adding stroke to '{file}' with rotation {rotation}... debug: {debug}");
+
+        Console.WriteLine($"Adding stroke to '{file}' with rotation {rotation}... Debug mode: {debug}");
         AddStrokeToPdf(file, rotation, debug);
     }
 
-    static string AddDirectoryToFilePath(string filePath, string newDirectory)
-    {
-        string originalDirectory = Path.GetDirectoryName(filePath);
-        string updatedDirectory = Path.Combine(originalDirectory, newDirectory);
-
-        Directory.CreateDirectory(updatedDirectory);
-
-        string updatedPath = Path.Combine(updatedDirectory, Path.GetFileName(filePath));
-        return updatedPath;
-    }
-
-    //   dotnet AddStrokeLine.dll --file "D:\baka.pdf" --rotation 90 --debug true
     static void AddStrokeToPdf(string inputPdf, int rotation, bool debug)
     {
-        // Create a temporary file for writing
+        string debugFolderPath = Path.Combine(Path.GetDirectoryName(inputPdf) ?? string.Empty, DebugFolderName);
+
+        // Ensure debug directory exists
+        if (debug && !Directory.Exists(debugFolderPath))
+        {
+            Directory.CreateDirectory(debugFolderPath);
+        }
+
         string outputFile = debug
-            ? AddDirectoryToFilePath(inputPdf, DebugFolderName)
+            ? Path.Combine(debugFolderPath, Path.GetFileName(inputPdf))
             : Path.Combine(Path.GetDirectoryName(inputPdf) ?? string.Empty, Guid.NewGuid() + ".pdf");
 
         try
         {
             using (var reader = new PdfReader(inputPdf))
+            using (var writer = new PdfWriter(outputFile))
+            using (var pdfDoc = new PdfDocument(reader, writer))
             {
-                using (var outputStream = new FileStream(outputFile, FileMode.Create, FileAccess.Write))
-                using (var stamper = new PdfStamper(reader, outputStream))
+                for (int i = 1; i <= pdfDoc.GetNumberOfPages(); i++)
                 {
-                    BaseColor baseColor = new CMYKColor(0f, 1f, 0f, 0f);
-                    PdfSpotColor spotColor = new PdfSpotColor(SpotColor, baseColor);
-                    PdfGState gState = new PdfGState
+                    var page = pdfDoc.GetPage(i);
+                    var pageSize = page.GetPageSize();
+                    var canvas = new PdfCanvas(page);
+                    var gState = new PdfExtGState().SetFillOpacity(1.0f).SetStrokeOpacity(1.0f);
+                    canvas.SetExtGState(gState);
+
+                    PdfSpecialCs.Separation spotColor = new PdfSpecialCs.Separation(
+                        SpotColor,
+                        new DeviceCmyk(0.0f, 1.0f, 0.0f, 0.0f).GetColorSpace(),
+                        new PdfType2Function(
+                            new double[] { 0, 1 },
+                            null,
+                            new double[] { 0, 0, 0, 0 },
+                            new double[] { 0.0f, 1.0f, 0.0f, 0.0f },
+                            1));
+
+                    canvas.SetStrokeColor(new Separation(spotColor, 1.0f));
+
+                    float x1, y1, x2, y2;
+                    switch (rotation)
                     {
-                        FillOpacity = 1.0f,
-                        StrokeOpacity = 1.0f
-                    };
-
-                    for (int i = 1; i <= reader.NumberOfPages; i++)
-                    {
-                        PdfContentByte cb = stamper.GetOverContent(i);
-                        cb.SetGState(gState);
-                        cb.SetColorStroke(new SpotColor(spotColor, 1.0f));
-
-                        var pageSize = reader.GetPageSize(i);
-                        float x1, y1, x2, y2;
-
-                        switch (rotation)
-                        {
-                            case 0:
-                                x1 = pageSize.Left;
-                                y1 = pageSize.Bottom;
-                                x2 = pageSize.Right;
-                                y2 = pageSize.Bottom;
-                                break;
-                            case 90:
-                                x1 = pageSize.Right;
-                                y1 = pageSize.Bottom;
-                                x2 = pageSize.Right;
-                                y2 = pageSize.Top;
-                                break;
-                            case 180:
-                                x1 = pageSize.Left;
-                                y1 = pageSize.Top;
-                                x2 = pageSize.Right;
-                                y2 = pageSize.Top;
-                                break;
-                            case 270:
-                                x1 = pageSize.Left;
-                                y1 = pageSize.Bottom;
-                                x2 = pageSize.Left;
-                                y2 = pageSize.Top;
-                                break;
-                            default:
-                                throw new InvalidOperationException("Invalid rotation value.");
-                        }
-
-                        DrawStroke(cb, x1, y1, x2, y2);
+                        case 0:
+                            x1 = pageSize.GetLeft();
+                            y1 = pageSize.GetBottom();
+                            x2 = pageSize.GetRight();
+                            y2 = pageSize.GetBottom();
+                            break;
+                        case 90:
+                            x1 = pageSize.GetRight();
+                            y1 = pageSize.GetBottom();
+                            x2 = pageSize.GetRight();
+                            y2 = pageSize.GetTop();
+                            break;
+                        case 180:
+                            x1 = pageSize.GetLeft();
+                            y1 = pageSize.GetTop();
+                            x2 = pageSize.GetRight();
+                            y2 = pageSize.GetTop();
+                            break;
+                        case 270:
+                            x1 = pageSize.GetLeft();
+                            y1 = pageSize.GetBottom();
+                            x2 = pageSize.GetLeft();
+                            y2 = pageSize.GetTop();
+                            break;
+                        default:
+                            throw new InvalidOperationException("Invalid rotation value.");
                     }
+
+                    DrawStroke(canvas, x1, y1, x2, y2);
                 }
             }
 
             if (!debug)
             {
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
-
                 File.Delete(inputPdf);
                 File.Move(outputFile, inputPdf);
             }
 
-            Console.WriteLine($"StrokeLine added successfully!");
+            Console.WriteLine($"Stroke added successfully. Output file: {outputFile}");
         }
         catch (Exception ex)
         {
@@ -160,11 +159,11 @@ class Program
         }
     }
 
-    static void DrawStroke(PdfContentByte cb, float x1, float y1, float x2, float y2)
+    static void DrawStroke(PdfCanvas canvas, float x1, float y1, float x2, float y2)
     {
-        cb.SetLineWidth(.5f);
-        cb.MoveTo(x1, y1);
-        cb.LineTo(x2, y2);
-        cb.Stroke();
+        canvas.SetLineWidth(0.5f);
+        canvas.MoveTo(x1, y1);
+        canvas.LineTo(x2, y2);
+        canvas.Stroke();
     }
 }
