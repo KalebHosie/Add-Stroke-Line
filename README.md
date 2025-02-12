@@ -5,6 +5,7 @@ PDF Stroke Adder
 This is a .NET command-line tool that modifies PDF files by adding a stroke along the page boundary at a specified rotation angle. It leverages iText7 to process PDFs and supports spot colors for precise printing needs.
 
 Features:
+
 ✔️ Add a stroke to a PDF at 0°, 90°, 180°, or 270° rotation
 
 ✔️ Supports spot colors (CMYK) for professional printing workflows
